@@ -1,0 +1,400 @@
+---
+title: "Marathon - Position Analysis"
+author: "Akshay Menon, Akshay Mishra, David Gaughan, Alex Pynn"
+date: "Due December 11th, 2019"
+output: html_document
+---
+
+```{r setup, echo = F, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+#load(file = "`~/marathon.Rda")
+library("tidyverse")
+library("chron")
+library("cowplot")
+
+#THE CORRECT WORKING DIRECTORY WILL NEED TO BE SET TO REFER TO THE RAW CSV
+setwd("/Users/apynn/Maynooth University/ST661 Mini Project - Documents/Raw Data Files")
+
+#Read in raw csv, replacing most appropriate NA values
+marathon <- read.csv("dublin2018marathon.csv", header = TRUE, as.is = TRUE, na.strings=c(""," ","NA"))
+
+#Remove unwanted/unused columns
+marathon <- subset(marathon, select = -c(X, YouTube, Your.Race.Video, Share))
+
+#Rename certain columns for consistent naming scheme
+colnames(marathon)[6] <- "Age.Bracket"
+colnames(marathon)[9] <- "Ten.K.Time"
+colnames(marathon)[10] <- "Ten.K.Position"
+colnames(marathon)[11] <- "Halfway.Time"
+colnames(marathon)[12] <- "Halfway.Position"
+colnames(marathon)[13] <- "Thirty.K.Time"
+colnames(marathon)[14] <- "Thirty.K.Position"
+
+#Factorize appropriate columns
+marathon$Gender <- as.factor(marathon$Gender)
+marathon$Club <- as.factor(marathon$Club)
+
+#Age group must be made an ordered factor for easy sorting
+marathon$Age.Bracket <- ordered(marathon$Age.Bracket, levels = c("FU19", "MU19", "FS", "MS", "F35", "M35", "F40", "M40", "F45", "M45", "F50", "M50", "F55", "M55", "F60", "M60", "F65", "M65", "F70", "M70", "F75", "M75", "M80", "M85"))
+levels(marathon$Age.Bracket) <- c("U19", "U19", "19-34", "19-34", "35-39", "35-39", "40-44", "40-44", "45-49", "45-49", "50-54", "50-54", "55-59", "55-59", "60-64", "60-64", "65-69", "65-69", "70-74", "70-74", "75-79", "75-79", "80-84", "85+")
+
+#Create new columsn for if the racer was in a club, if they didn't finish, or if they were disqualified
+marathon <- mutate(marathon, In.Club = !is.na(Club))
+marathon$Did.Not.Finish <- marathon$Chip.Time == "DNF"
+marathon$Disqualified <- marathon$Chip.Time == "DQ"
+
+#Change all DNF and DQ values to null string so they can be handled in the below statements
+marathon[marathon == "DNF" | marathon == "DQ"] <- ""
+
+#Clean up all racer position columns
+marathon <- mutate_at(marathon, vars(contains("Position")), na_if, "0") %>%
+  mutate_at(vars(contains("Position")), na_if, "") %>%
+  mutate_at(vars(contains("Position")), as.integer)
+
+#Clean up all racer time columns
+marathon <- mutate_at(marathon, vars(contains("Time")), na_if, "0") %>%
+  mutate_at(vars(contains("Time")), na_if, "") %>%
+  mutate_at(vars(contains("Time")), times)
+```
+
+
+```{r, echo = F, eval = F}
+#The following is the code that was used to clean up the data in the csv provided
+
+#Read in raw csv, replacing most appropriate NA values
+marathon <- read.csv("dublin2018marathon.csv", header = TRUE, as.is = TRUE, na.strings=c(""," ","NA"))
+
+#Remove unwanted/unused columns
+marathon <- subset(marathon, select = -c(X, YouTube, Your.Race.Video, Share))
+
+#Rename certain columns for consistent naming scheme
+colnames(marathon)[6] <- "Age.Bracket"
+colnames(marathon)[9] <- "Ten.K.Time"
+colnames(marathon)[10] <- "Ten.K.Position"
+colnames(marathon)[11] <- "Halfway.Time"
+colnames(marathon)[12] <- "Halfway.Position"
+colnames(marathon)[13] <- "Thirty.K.Time"
+colnames(marathon)[14] <- "Thirty.K.Position"
+
+#Factorize appropriate columns
+marathon$Gender <- as.factor(marathon$Gender)
+marathon$Club <- as.factor(marathon$Club)
+
+#Age group must be made an ordered factor for easy sorting
+marathon$Age.Bracket <- ordered(marathon$Age.Bracket, levels = c("FU19", "MU19", "FS", "MS", "F35", "M35", "F40", "M40", "F45", "M45", "F50", "M50", "F55", "M55", "F60", "M60", "F65", "M65", "F70", "M70", "F75", "M75", "M80", "M85"))
+levels(marathon$Age.Bracket) <- c("U19", "U19", "19-34", "19-34", "35-39", "35-39", "40-44", "40-44", "45-49", "45-49", "50-54", "50-54", "55-59", "55-59", "60-64", "60-64", "65-69", "65-69", "70-74", "70-74", "75-79", "75-79", "80-84", "85+")
+
+#Create new columsn for if the racer was in a club, if they didn't finish, or if they were disqualified
+marathon <- mutate(marathon, In.Club = !is.na(Club))
+marathon$Did.Not.Finish <- marathon$Chip.Time == "DNF"
+marathon$Disqualified <- marathon$Chip.Time == "DQ"
+
+#Change all DNF and DQ values to null string so they can be handled in the below statements
+marathon[marathon == "DNF" | marathon == "DQ"] <- ""
+
+#Clean up all racer position columns
+marathon <- mutate_at(marathon, vars(contains("Position")), na_if, "0") %>%
+  mutate_at(vars(contains("Position")), na_if, "") %>%
+  mutate_at(vars(contains("Position")), as.integer)
+
+#Clean up all racer time columns
+marathon <- mutate_at(marathon, vars(contains("Time")), na_if, "0") %>%
+  mutate_at(vars(contains("Time")), na_if, "") %>%
+  mutate_at(vars(contains("Time")), times)
+```
+
+### Introduction  
+
+The purpose of this report is to analyze the data collected from the 2018 Dublin Full Marathon and attempt to visualize any meaningful trends. The data contains information on 16,433 runners.
+
+The csv file containing the dataset was read into RStudio using a filter which replaces blanks with NA. Columns X, Youtube, Your.Race.Video and Share were dropped, as they contained no useful information. All time and position columns were renamed for usability, Category was renamed to Age.Bracket for better understanding. Columns Gender and Club were factorised. Column Age.Bracket was factorised with ordered levels inorder to accomodate sorting. All the position columns were converted into integers with zeroes replaced by NA. All the times columns were converted 'times' object using the 'chron' library and the resulting data frame was used to conduct this exploratory data analysis.
+
+The tidyverse library was installed, primarily for ggplot2 and dplyr. The chron library was used to manipulate all time related data and the cowplot library was used to assist in the organization and display of plots.
+
+This report also utilizes the distinction between gun/overall time/position and chip time/position. For clarification is required regarding these differences, please refer to [this web page](https://blog.atlasrfidstore.com/race-chip-timing-vs-gun-timing).
+
+### Analysis  
+
+#### Demographics
+
+A cursory evaluation of the demographics show that the participants were 65.9% male (34.1% female), 15.5% were part of a running club (84.5% non-members), and 71% were between the ages of 35 and 54 (29% outiside this age range). These statistics are broken out in the figure below.
+
+```{r fig.height = 4, fig.align='center', out.width="100%",echo = F, eval = T}
+facetlabs <- c("Club Member", "Not Club Member")
+names(facetlabs) <- c(TRUE, FALSE)
+
+ggplot(data = subset(marathon, !is.na(Chip.Time))) +
+  geom_bar(mapping = aes(x = Age.Bracket, fill = Gender)) +
+  theme(legend.position = "bottom", 
+        axis.text.x = element_text(size = 6), 
+        axis.title.x = element_text(size = 10), 
+        plot.title = element_text(hjust = 0.5, size = 12)) +
+  facet_grid(cols = vars(In.Club), labeller = labeller(In.Club = facetlabs)) +
+  labs(x = "Age Bracket", y = "Number of Runners", title = "General Demographics of the 2018 Dublin Marathon")
+```
+
+As mentioend above, there are far fewer participants who are club members than who are. The ratio of men and women in each category seems to be fairly consistent with the total ratio. Interestingly, joining a running club seems to be most popular with those in their early fourties. This could be considered perculiar, as those in the 19-34 and 35-39 brackets would be more in their "physical prime", and thus could benefit more from club membership. However, the social aspect of joining a club is likely a contributing factor to this observation.  
+  
+#### General Categorical Performance  
+
+As with the demographics, high level analysis of the data yeilds a mean completion time of 4:05 for males, 4:37 for females, 3:56 for club members, and 4:19 for non-members.  
+
+```{r fig.align='center', out.width="100%",echo = F, eval = T}
+orangefill = "#DE8C00"
+purplefill = "#C77CFF"
+
+plot1 <- ggplot(data = subset(marathon, !is.na(marathon$Chip.Time)), aes(Age.Bracket, Chip.Time, colour = Age.Bracket)) +
+  geom_boxplot(width = 0.5, show.legend = FALSE) +
+  labs(x = 'Age Bracket', 
+       y = 'Finish Time (Chip)', 
+       title = 'Finish Times by Age Bracket, Gender, and Club Status') + 
+  scale_y_chron(format = "%H:%M", n = 10) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
+  scale_colour_hue() +
+  geom_hline(yintercept = median(marathon$Chip.Time, na.rm = TRUE), colour = "red", linetype = 2)
+
+plot2 <- ggplot(data = subset(marathon, !is.na(marathon$Chip.Time)), aes(Gender, Chip.Time, colour = Gender)) +
+  geom_boxplot(width = 0.5, show.legend = FALSE) +
+  labs(x = 'Gender', 
+       y = 'Finish Time (Chip)') + 
+  scale_y_chron(format = "%H:%M", n = 10) +
+  scale_colour_hue()
+
+plot3 <- ggplot(data = subset(marathon, !is.na(marathon$Chip.Time)), aes(In.Club, Chip.Time, colour = In.Club)) +
+  geom_boxplot(width = 0.5, show.legend = FALSE) +
+  labs(x = 'Club Member', 
+       y = 'Finish Time (Chip)') + 
+  scale_y_chron(format = "%H:%M", n = 10) +
+  scale_colour_manual(values = c(purplefill, orangefill))
+
+plot_grid(plot1, plot_grid(plot2, plot3, ncol = 2), nrow = 2)
+```
+
+Upon inspection, an immediately interesting aspect of the Age Bracket plot is that the fastest bracket, on average, was 35-39. This is in contrast to both the younger 19-34 bracket (they would, presumably, have more "youthful vigor"), and the 40-44 bracket, who had a higher humber of participants in running clubs. Perhaps this middle ground of the two advantages is what produces the lower overall race time. Additionally, the size of the boxes (interquartile range) seems to increase as age does. This is likely due to the number of the participants decreasing as age increases, resulting in a smaller sample size.
+
+#### Performance Over Time
+
+```{r fig.height = 2.5, fig.align='center', out.width="100%", echo = F, eval = T}
+bluefill = "#01BFC4"
+
+plot1 <- ggplot(data = subset(marathon, !is.na(Chip.Position))) +
+  geom_point(mapping = aes(x = Ten.K.Position, y = Chip.Position), colour = bluefill, alpha = 0.05) +
+  geom_abline(slope = 1) +
+  theme(legend.position = "bottom") +
+  labs(y = "Finish Position (Chip)")
+
+plot2 <- ggplot(data = subset(marathon, !is.na(Chip.Position))) +
+  geom_point(mapping = aes(x = Halfway.Position, y = Chip.Position), colour = bluefill, alpha = 0.05) +
+  geom_abline(slope = 1) +
+  theme(legend.position = "none", axis.title.y = element_blank(), axis.text.y = element_blank()) + 
+  scale_fill_manual(values = bluefill)
+
+plot3 <- ggplot(data = subset(marathon, !is.na(Chip.Position))) +
+  geom_point(mapping = aes(x = Thirty.K.Position, y = Chip.Position), colour = bluefill, alpha = 0.05) +
+  geom_abline(slope = 1) +
+  theme(legend.position = "none", axis.title.y = element_blank(), axis.text.y = element_blank()) + 
+  scale_fill_manual(values = bluefill)
+
+ggdraw( plot_grid(plot1, plot2, plot3, ncol = 3, rel_widths = c(1.25, 1, 1))) +
+  labs(title = 'Trend in Position Change with Race Progression') + 
+  theme(plot.title = element_text(hjust = 0.5, size = 12))
+```
+
+The above three plots side by side represent how racers positions throughout the race relate to their final place. Points below the line represent racers who obtained better final positions, and points below represent those who fell behind. It is clear that variability in position change decreases as the race progresses, represented by the tightening of the points around the 1:1 line. However, the variance is miuch higher avobe the line than below. It is possible that, when advancing positions, there is tighter competition than when falling behind. 
+
+```{r echo = F}
+#Finding the difference in halfway time
+marathon$First.Quarter.Speed <- 10/marathon$Ten.K.Time/24
+marathon$Second.Quarter.Speed <- (42.195/2-10)/(marathon$Halfway.Time - marathon$Ten.K.Time)/24
+marathon$Third.Quarter.Speed <- (30-42.195/2)/(marathon$Thirty.K.Time - marathon$Halfway.Time)/24
+marathon$Fourth.Quarter.Speed <- (42.195-30)/(marathon$Chip.Time - marathon$Thirty.K.Time)/24
+
+marathon$Ten.K.Diff <- marathon$Second.Quarter.Speed - marathon$First.Quarter.Speed
+marathon$Halfway.Diff <- marathon$Third.Quarter.Speed - marathon$Second.Quarter.Speed
+marathon$Thirty.K.Diff <- marathon$Fourth.Quarter.Speed - marathon$Third.Quarter.Speed
+
+Ten.K.pos.diff = as.factor(ifelse(marathon$Ten.K.Diff > 0, "Faster", "Slower"))
+Halfway.pos.diff = as.factor(ifelse(marathon$Halfway.Diff > 0, "Faster", "Slower"))
+Thirty.K.pos.diff = as.factor(ifelse(marathon$Thirty.K.Diff > 0, "Faster", "Slower"))
+```
+
+```{r fig.height= 2.5, fig.align='center', out.width="100%", echo = F, eval = T}
+bin.number = 25
+ymax = 10000
+redfill = "#E1806F"
+greenfill = "#64BA87"
+
+legend <- get_legend(ggplot(data = marathon, aes(Ten.K.Diff, fill = factor(Ten.K.pos.diff))) +
+  geom_histogram(bins = bin.number, colour = "black") + 
+  theme(legend.direction = "horizontal") + 
+  scale_fill_manual(values = c(greenfill, redfill), name="Speed Change", guide = guide_legend(reverse=TRUE)))
+
+
+plot1 <- ggplot(data = marathon, aes(Ten.K.Diff, fill = Ten.K.pos.diff)) +
+  geom_histogram(bins = bin.number, colour = "black") + 
+  theme(legend.position = "none",
+        axis.title.x = element_text(size = 10)) + 
+  labs(x = "Diff. Between First and\nSecond Quarter (km/h)", y = "Number of Runners") +
+  scale_y_log10(limits = c(NA, ymax)) + xlim(-6,4) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Speed Change", guide = guide_legend(reverse=TRUE))
+
+plot2 <- ggplot(data = marathon, aes(Halfway.Diff, fill = Halfway.pos.diff)) +
+  geom_histogram(bins = bin.number, colour = "black") + 
+  theme(legend.position = "none" ,
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) + 
+  labs(x = "Diff. Between Second and\nThird Quarter (km/h)") +
+  scale_y_log10(limits = c(NA, ymax)) + xlim(-6,4) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Speed Change", guide = guide_legend(reverse=TRUE))
+
+plot3 <- ggplot(data = marathon, aes(Thirty.K.Diff, fill = Thirty.K.pos.diff)) +
+  geom_histogram(bins = bin.number, colour = "black") + 
+  theme(legend.position = "none" ,
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) + 
+  labs(x = "Diff. Between Third and\nFourth Quarter (km/h)") +
+  scale_y_log10(limits = c(NA, ymax)) + xlim(-6,4) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Speed Change", guide = guide_legend(reverse=TRUE))
+
+
+ggdraw(
+  plot_grid(
+    plot_grid(plot1, plot2, plot3, nrow = 1, rel_widths = c(1.25, 1, 1)),
+    legend, 
+    nrow = 2, 
+    rel_heights = c(10, 1))) +
+  labs(title = 'Speed Change of Runners Between Distance Marks') + 
+  theme(plot.title = element_text(hjust = 0.5, size = 12))
+```
+
+Relating to the above plots, For runners to, ideally, climb positions in the race, they should be increasing their pace slowly in each quarter of the race. The trend that we observe here is that most runners drop their pace after each quarter. We can see that between the first and second quarter of the race, a good number of runners have slowed down. This trend of slowing down increases as we move to the final leg of the race which indicates that a large majority of the runners are not seasoned enough to run a full marathon by maintaining or increasing their pace.   
+
+```{r echo = F}
+marathonPosChange <- marathon %>% 
+  mutate (Ten.K.Position.Change = ifelse(Halfway.Position > Ten.K.Position, "GAIN", "LOSS"),
+          Halfway.Position.Change = ifelse(Thirty.K.Position > Halfway.Position, "GAIN", "LOSS"),
+          Thirty.K.Position.Change = ifelse(Chip.Position > Thirty.K.Position, "GAIN", "LOSS")) %>%
+  filter(Ten.K.Position.Change != "NA") %>%
+  filter(Halfway.Position.Change != "NA") %>%
+  filter(Thirty.K.Position.Change != "NA")
+```
+
+```{r fig.show = "hold", out.width = "100%", echo = F, eval = T}
+legend <- get_legend(ggplot(marathonPosChange, aes(x = Age.Bracket, fill = factor(Ten.K.Position.Change))) + 
+  geom_bar(position = "fill") + 
+  theme(legend.direction = "horizontal") +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE)))
+
+plot1a <- ggplot(marathonPosChange, aes(x = Age.Bracket, fill = factor(Ten.K.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank()) + 
+  labs(y = "10k to Halfway\nMarks") +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+plot2a <- ggplot(marathonPosChange, aes(x = Gender, fill = factor(Ten.K.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+plot3a <- ggplot(marathonPosChange, aes(x = In.Club, fill = factor(Ten.K.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+
+plot1b <- ggplot(marathonPosChange, aes(x = Age.Bracket, fill = factor(Halfway.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank()) + 
+  labs(y = "Halfway to 30k\nMarks") +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+plot2b <- ggplot(marathonPosChange, aes(x = Gender, fill = factor(Halfway.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+plot3b <- ggplot(marathonPosChange, aes(x = In.Club, fill = factor(Halfway.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+
+plot1c <- ggplot(marathonPosChange, aes(x = Age.Bracket, fill = factor(Thirty.K.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none") + 
+  labs(y = "30k Mark to\nFinish") +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+plot2c <- ggplot(marathonPosChange, aes(x = Gender, fill = factor(Thirty.K.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+plot3c <- ggplot(marathonPosChange, aes(x = In.Club, fill = factor(Thirty.K.Position.Change))) + geom_bar(position = "fill") +
+  theme(legend.position = "none", 
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  scale_fill_manual(values = c(greenfill, redfill), name="Position Change", guide = guide_legend(reverse=TRUE))
+
+ggdraw(
+  plot_grid(
+    plot_grid(plot1a, plot2a, plot3a, nrow = 1, rel_widths = c(9/15, 2/15, 2/15)),
+    plot_grid(plot1b, plot2b, plot3b, nrow = 1, rel_widths = c(9/15, 2/15, 2/15)),
+    plot_grid(plot1c, plot2c, plot3c, nrow = 1, rel_widths = c(9/15, 2/15, 2/15)),
+    legend, 
+    nrow = 4, 
+    rel_heights = c(10, 10, 12.5, 2))) +
+  labs(title = 'Average Position Changes') + 
+  theme(plot.title = element_text(hjust = 0.5, size = 12))
+```
+
+It is interesting that more people fall behind than gain position. However, this would be possible if, for example, one person overtook five people. This would mean that one person moved up and five people fell behind. This indicates that a majority of people slow down as the race progresses, but there is a minority who are able to better keep pace. Particularly, the runners who have gained position in the last leg of the race could be the professional, trained runners who display excellent techniques to save energy for the final leg of the marathon.
+
+It can also be seen that the age bracket of U19 has the highest percentage of runners who have gained position in the last leg of the marathon. However, there are only 17 people in this bracket, compared to 3500 in the 19-34 age bracket, so it is difficult to draw any concrete conclusions from such a small sample size. Additionally, a higher percentage of men have gained position in the last leg of the race, suggesting that male marathon runners have better endurance than females. Also, we can see that on an average, the independant runners have done better at gaining position as compared to runners that belong to a running club. 
+
+#### Time/Position Relationship
+
+```{r fig.height = 4, fig.show = "hold", out.width = "100%", echo = F, eval = T}
+ggplot(data = subset(marathon, !is.na(Chip.Time))) + geom_point(mapping = aes(x = Gender.Position, y = Chip.Time, colour = Gender)) + scale_y_chron(format = "%H:%M", n = 10) +
+  labs(x = "Position Separated by Gender", y = "Finish Time (Chip)", title = 'Finish Time Relative to Overall Race Position') + 
+  theme(plot.title = element_text(hjust = 0.5, size = 12))
+```
+
+A walkthrough of the above plot reveals the following: At the lowest positions, a small change in position (1 place) results in a comparatively large change in chip time. This indicates that there are relatively large gaps of time in between the first set of runners who cross the finish line. This then levels off and gives way to a steadier stream of runners, with comparatively smaller time gaps between when they finish. This corresponds with slower and slower average speeds (runners with similar speeds would have increasing positions, but similar chip times, resultsing in a slope of near zero). And finally, as the last set of runners come in, the gaps in between them increase again, resulting in an increasing slope.
+
+It is also obvious that there are four distinct "stripes" in the male and female sets. These likely correspond to the four different waves that the runners are released in (this is done to prevent congestion in the race). If a horizontal line is drawn through the plot, this would intersect racers who were in different waves, but performed similarly (similar chip times). If a vertical line is drawn, this would intersect racers who were in different waves, but had simiplar positions (thus showing the racers in the later waves caught up to those in earlier ones, and had much lower chip times). And finally, if a stright line was drawn through each of the four stripes, it is likely that the difference in the intercepts of these lines would correspond with difference in time between each of the four waves.
+
+```{r echo = FALSE, eval = FALSE}
+#The following code was used to draw percentages and counts used in the conclusion below.
+avg_gender_time <- marathon %>% group_by(Gender) %>% summarise(Average.Time = mean(Chip.Time, na.rm = T))
+percentage <- marathon %>% group_by(Gender) %>% summarise(Percentage = (n()/nrow(marathon)) * 100)
+percentageCategory <- marathon %>% group_by(Category, Gender) %>% summarise(Percentage = (n()/nrow(marathon)) * 100, 
+              Finish = ((n() - sum(Did.Not.Finish, na.rm = T))/n()) * 100, numberOfPeople = n())
+marathon[marathon$Chip.Position <= 10, c("First.Name", "Surname", "Gender", "In.Club", "Chip.Time", "Overall.Position")]
+ivars =  c("First.Name", "Surname", "Gender", "In.Club", "Chip.Time", "Overall.Position", "Gender.Position", "Age.Bracket")
+topFemaleRunners <- marathon[,ivars] %>% filter(Gender == "Female") %>% arrange(Gender.Position)
+topRunners <- head(marathon[,ivars], n = 100) %>% arrange(Overall.Position) %>% group_by(Age.Bracket) %>% 
+  summarise(numberofrunners = n())
+```
+
+### Conclusion  
+
+Out of the 16,433 runners, 16,239 of them finished the race. The 35-39 age group finished with the best average finish time of 4:01:06. It is also noted that men had a better average finish time of 04:04:42 compared to women who averaged at 04:37:36. The runners who belonged to a club finished with a higher average finish time of 03:56:14 compared 04:19:33 for the runners who do not belong to a club.
+
+Disregarding the U19 bracket due to an insufficient sample size, the 19-34 age bracket displayed the best endurance with the highest participation of 3530 members and 52% of the top 100 runners are from this age bracket. This mention of the top 100 runners, however, warrants acknowledging that the broader trends seen by this analysis may not be representative of the top performing subset of those running a marathon. Although it would be interesting to compare performance, demographics, etc. of this subset, it was not within the scope of this report. 
